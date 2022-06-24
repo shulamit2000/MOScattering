@@ -1,0 +1,154 @@
+(* This function calculates the optical force exerted on a magneto-optical particle by a plane wave.
+It accepts the following parameters:
+r - radius of the particle, 
+theta - the angle of scattering direction, 
+ScaCoeff - scatterign coefficients calculated previously with the function fScaCoeff, 
+lambda - wavelength, 
+z - direction of propagation: 1 for +z, -1 for -z, 
+polarization - 1 for linear, 2 for RCP, 3 for LCP
+
+example for calling the function to calculate the force exerted on a sphere
+FtotLCP =  NIntegrate[fForceDyad[r, theta, ScaCoeff, lambda, 1, 1], {theta, 0, Pi}, WorkingPrecision -> 200];
+*)
+
+fForceDyad[r_, theta_, ScaCoeff_, lambda_, z_, pol_] := (
+  nStart = 1;
+  nEnd = nMax;
+  k = 2*Pi/lambda;
+  w = 2*Pi*c/lambda;
+  R = r;
+  rho = k*R;
+  Hn1 = Table[SphericalHankelH1[n, rho], {n, nStart, nEnd}];
+  Hn1m1 = 
+   Table[SphericalHankelH1[n, rho], {n, nStart - 1, nEnd - 1}];
+  Jn = Table[SphericalBesselJ[n, rho], {n, nStart, nEnd}];
+  Jnm1 = Table[SphericalBesselJ[n, rho], {n, nStart - 1, nEnd - 1}];
+  nTable = Table[n, {n, nStart, nEnd}];
+  amnX0 = (I^(nTable + 1)*(2*nTable + 1)/(2*nTable*(nTable + 1)));
+  
+  An1 = ScaCoeff[[1, Range[nStart, nEnd]]];
+  Bn1 = ScaCoeff[[3, Range[nStart, nEnd]]];
+  Anm1 = ScaCoeff[[2, Range[nStart, nEnd]]];
+  Bnm1 = ScaCoeff[[4, Range[nStart, nEnd]]];
+  
+  
+  Switch[pol,
+   1, (* Linear*)
+   amnP = amnX0;
+   bmnP = amnX0;
+   amnN = amnX0*nTable*(nTable + 1);
+   bmnN = -amnX0*nTable*(nTable + 1);,
+   2,(* RCP*)
+   amnX0 = 2 amnX0;
+   amnP = amnX0;
+   bmnP = amnX0;
+   amnN = 0;
+   bmnN = 0;
+   An1 = 2 An1;
+   Bn1 = 2 Bn1;,
+   3, (*LCP*)
+   amnX0 = 2 amnX0;
+   amnP = 0;
+   bmnP = 0;
+   amnN = amnX0*nTable*(nTable + 1);
+   bmnN = -amnX0*nTable*(nTable + 1);
+   Anm1 = 2 Anm1;
+   Bnm1 = 2 Bnm1;
+   ];
+  
+  
+  If[z == -1,
+   amnP = amnP*LegendreP[nTable, 0, Cos[Pi]];
+   bmnP = bmnP*LegendreP[nTable, 0, Cos[Pi]];
+   amnN = amnN*LegendreP[nTable, 0, Cos[Pi]];
+   bmnN = bmnN*LegendreP[nTable, 0, Cos[Pi]];
+   ];
+  
+  Pn1 = Table[LegendreP[n, 1, Cos[theta]], {n, nStart, nEnd}];
+  Pnm1 = Table[LegendreP[n, -1, Cos[theta]], {n, nStart, nEnd}];
+  
+  Er1 = Total[nTable*(nTable + 1)*Hn1/(rho)*Bn1*Pn1] + 
+    Total[bmnP*nTable*(nTable + 1)*Jn/(rho)*Pn1];
+  Er2 = Total[nTable*(nTable + 1)*Hn1/(rho)*Bnm1*Pnm1] + 
+    Total[bmnN*nTable*(nTable + 1)*Jn/(rho)*Pnm1];
+  
+  E\[Theta]1 = 
+   Total[
+     I*An1*Hn1*Pn1/Sin[theta] + 
+      Bn1*(Hn1m1 - nTable*Hn1/(rho))*D[Pn1, theta]] + 
+    Total[
+     I*amnP*Jn*Pn1/Sin[theta] + 
+      bmnP*(Jnm1 - nTable*Jn/(rho))*D[Pn1, theta]];
+  E\[Theta]2 = 
+   Total[-I*Anm1*Hn1*Pnm1/Sin[theta] + 
+      Bnm1*(Hn1m1 - nTable*Hn1/(rho))*D[Pnm1, theta]] + 
+    Total[-I*amnN*Jn*Pnm1/Sin[theta] + 
+      bmnN*(Jnm1 - nTable*Jn/(rho))*D[Pnm1, theta]];
+  
+  E\[Phi]1 = 
+   Total[-An1*Hn1*D[Pn1, theta] + 
+      I*Bn1*(Hn1m1 - nTable*Hn1/(rho))*Pn1/Sin[theta]] + 
+    Total[-amnP*Jn*D[Pn1, theta] + 
+      I*bmnP*(Jnm1 - nTable*Jn/(rho))*Pn1/Sin[theta]];
+  E\[Phi]2 = 
+   Total[-Anm1*Hn1*D[Pnm1, theta] - 
+      I*Bnm1*(Hn1m1 - nTable*Hn1/(rho))*Pnm1/Sin[theta]] + 
+    Total[-amnN*Jn*D[Pnm1, theta] - 
+      I*bmnN*(Jnm1 - nTable*Jn/(rho))*Pnm1/Sin[theta]];
+  
+  EVec1 = {Er1, E\[Theta]1, E\[Phi]1};
+  EVec2 = {Er2, E\[Theta]2, E\[Phi]2};
+  
+  Hr1 = k/(I*w*mu0)*(Total[nTable*(nTable + 1)*Hn1/(rho)*An1*Pn1] + 
+      Total[nTable*(nTable + 1)*Jn/(rho)*amnP*Pn1]);
+  Hr2 = k/(I*w*mu0)*(Total[nTable*(nTable + 1)*Hn1/(rho)*Anm1*Pnm1] + 
+      Total[nTable*(nTable + 1)*Jn/(rho)*amnN*Pnm1]);
+  
+  H\[Theta]1 = 
+   k/(I*w*mu0)*(Total[
+       I*Bn1*Hn1*Pn1/Sin[theta] + 
+        An1*(Hn1m1 - nTable*Hn1/(rho))*D[Pn1, theta]] + 
+      Total[
+       I*bmnP*Jn*Pn1/Sin[theta] + 
+        amnP*(Jnm1 - nTable*Jn/(rho))*D[Pn1, theta]]);
+  H\[Theta]2 = 
+   k/(I*w*
+       mu0)*(Total[-I*Bnm1*Hn1*Pnm1/Sin[theta] + 
+        Anm1*(Hn1m1 - nTable*Hn1/(rho))*D[Pnm1, theta]] + 
+      Total[-I*bmnN*Jn*Pnm1/Sin[theta] + 
+        amnN*(Jnm1 - nTable*Jn/(rho))*D[Pnm1, theta]]);
+  
+  H\[Phi]1 = 
+   k/(I*w*
+       mu0)*(Total[-Bn1*Hn1*D[Pn1, theta] + 
+        I*An1*(Hn1m1 - nTable*Hn1/(rho))*Pn1/Sin[theta]] + 
+      Total[-bmnP*Jn*D[Pn1, theta] + 
+        I*amnP*(Jnm1 - nTable*Jn/(rho))*Pn1/Sin[theta]]);
+  H\[Phi]2 = 
+   k/(I*w*
+       mu0)*(Total[-Bnm1*Hn1*D[Pnm1, theta] - 
+        I*Anm1*(Hn1m1 - nTable*Hn1/(rho))*Pnm1/Sin[theta]] + 
+      Total[-bmnN*Jn*D[Pnm1, theta] - 
+        I*amnN*(Jnm1 - nTable*Jn/(rho))*Pnm1/Sin[theta]]);
+  
+  HVec1 = {Hr1, H\[Theta]1, H\[Phi]1};
+  HVec2 = {Hr2, H\[Theta]2, H\[Phi]2};
+  
+  
+  ETrz1 = 
+   Re[(e0*(EVec1 . Transpose[Conjugate[EVec1]]) . {1, 0, 0} + 
+       mu0*(HVec1 . Transpose[Conjugate[HVec1]]) . {1, 0, 0}
+       - 
+       1/2 (e0*Flatten[EVec1] . Conjugate[Flatten[EVec1]] + 
+          mu0*Flatten[HVec1] . Conjugate[Flatten[HVec1]])*{1, 0, 
+         0}) . {Cos[theta], -Sin[theta], 0}];
+  ETrz2 = 
+   Re[(e0*(EVec2 . Transpose[Conjugate[EVec2]]) . {1, 0, 0} + 
+       mu0*(HVec2 . Transpose[Conjugate[HVec2]]) . {1, 0, 0}
+       - 
+       1/2 (e0*Flatten[EVec2] . Conjugate[Flatten[EVec2]] + 
+          mu0*Flatten[HVec2] . Conjugate[Flatten[HVec2]])*{1, 0, 
+         0}) . {Cos[theta], -Sin[theta], 0}];
+  
+  IntElem = Sin[theta]*(ETrz2 + ETrz1)
+  )
