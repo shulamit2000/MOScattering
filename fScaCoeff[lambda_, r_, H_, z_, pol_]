@@ -1,0 +1,454 @@
+(*Clear["Global`*"];*)
+e0 = 8.85418782*10^(-12);
+mu0 = 1.25663706*10^(-6);
+eInf = 15.7;
+wL = 3.62*10^13;
+wT = 3.39* 10^13;
+wP = 3.14* 10^13;
+myGamma = 5.65* 10^11;
+g = 3.39* 10^12;
+meff = 0.022;
+me = 9.11* 10^(-31);
+ec = 1.602* 10^(-19);
+
+c = 299792458;
+
+nMax = 4;
+
+myWP = 100;
+maxRec = 100;
+accGoal = 8;
+ParallelEvaluate[Off[NIntegrate::eincr]];
+ParallelEvaluate[Off[NIntegrate::slwcon]];
+ParallelEvaluate[Off[NIntegrate::precw]];
+
+fAe1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
+  I^n*(2*n + 1)/(2*n^2*(n + 1)^2)*
+   Del1/myDel*((n + Abs[m])*(n - Abs[m] + 1)*
+      LegendreP[n, 0, Cos[thetak]] - LegendreP[n, 2, Cos[thetak]] )
+  )
+fAe2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
+  I^(n + 1)*(2*n + 1)/(n^2*(n + 1)^2)*(
+    Del2/(2*myDel)*(
+       (n + Abs[m])*(n - Abs[m] + 1)*LegendreP[n, 0, Cos[thetak]] + 
+        LegendreP[n, 2, Cos[thetak]])
+     + Abs[m]*LegendreP[n, 1, Cos[thetak]]))
+fBe1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
+  I^n*Del1/(2*n^2*(n + 1)^2*myDel)*(
+     (n + 1)*(n + Abs[m])*(n + Abs[m] - 1)*
+      LegendreP[n - 1, 0, Cos[thetak]]
+     + (n + 1)*LegendreP[n - 1, 2, Cos[thetak]]
+     + n*(n - Abs[m] + 2)*(n - Abs[m] + 1)*
+      LegendreP[n + 1, 0, Cos[thetak]]
+     + n*LegendreP[n + 1, 2, Cos[thetak]])
+  )
+fBe2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
+  I^(n + 1)/(n^2*(n + 1)^2)*(
+    Del2/(2*myDel)*(
+       (n + 1)*(n + Abs[m])*(n + Abs[m] - 1)*
+         LegendreP[n - 1, 0, Cos[thetak]]
+        - (n + 1)*LegendreP[n - 1, 2, Cos[thetak]]
+        + 
+        n*(n - Abs[m] + 2)*(n - Abs[m] + 1)*
+         LegendreP[n + 1, 0, Cos[thetak]]
+        - n*LegendreP[n + 1, 2, Cos[thetak]])
+     + n*(n - Abs[m] + 1)*LegendreP[n + 1, 1, Cos[thetak]]
+     - (n + 1)*(n + Abs[m])*LegendreP[n - 1, 1, Cos[thetak]])
+  )
+fCe1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
+  I^n*Del1/(2*kq*n*(n + 1)*myDel)*(
+     (n + Abs[m])*(n + Abs[m] - 1)*LegendreP[n - 1, 0, Cos[thetak]]
+     + LegendreP[n - 1, 2, Cos[thetak]]
+     - (n - Abs[m] + 2)*(n - Abs[m] + 1)*
+      LegendreP[n + 1, 0, Cos[thetak]]
+     - LegendreP[n + 1, 2, Cos[thetak]])
+  )
+fCe2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
+  I^(n + 1)/(kq*n*(n + 1))*(
+    Del2/(2*myDel)*(
+       (n + Abs[m])*(n + Abs[m] - 1)*LegendreP[n - 1, 0, Cos[thetak]]
+        - LegendreP[n - 1, 2, Cos[thetak]]
+        - (n - Abs[m] + 2)*(n - Abs[m] + 1)*
+         LegendreP[n + 1, 0, Cos[thetak]]
+        + LegendreP[n + 1, 2, Cos[thetak]])
+     - (2*n + 1)*Cos[thetak]*LegendreP[n, 1, Cos[thetak]])
+  )
+fAh1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := (
+  I^(n + 1)*(2*n + 1)*kq*Del1/(2*n^2*(n + 1)^2*w*mu0*myDel)*(
+    -Cos[
+        thetak]*((n + Abs[m])*(n - Abs[m] + 1)*
+         LegendreP[n, 0, Cos[thetak]]
+        + LegendreP[n, 2, Cos[thetak]])
+     + 2*Abs[m]*LegendreP[n, 1, Cos[thetak]]*Sin[thetak])
+  )
+
+fAh2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := (
+  I^n*kq*(2*n + 1)/(w*mu0*2*n^2*(n + 1)^2)*(Del2/myDel*Cos[thetak] - 
+     Sin[thetak])*(
+    (n + Abs[m])*(n - Abs[m] + 1)*LegendreP[n, 0, Cos[thetak]] - 
+     LegendreP[n, 2, Cos[thetak]])
+  )
+fBh1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := ( 
+  I^(n + 1)*kq*Del1 /(n^2*(n + 1)^2*myDel*w*mu0)  *(-Cos[thetak]/2*(
+       (n + 1)*(n + Abs[m])*(n + Abs[m] - 1)*
+         LegendreP[n - 1, 0, Cos[thetak]]
+        - (n + 1)*LegendreP[n - 1, 2, Cos[thetak]]
+        + 
+        n*(n - Abs[m] + 2)*(n - Abs[m] + 1)*
+         LegendreP[n + 1, 0, Cos[thetak]]
+        - n*LegendreP[n + 1, 2, Cos[thetak]])
+     + Sin[thetak]*(
+        n*(n - Abs[m] + 1)*LegendreP[n + 1, 1, Cos[thetak]]
+        - (n + 1)*(n + Abs[m])*LegendreP[n - 1, 1, Cos[thetak]]))
+  )
+fBh2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := (
+  I^n*kq/(2*n^2*(n + 1)^2*w*mu0)*(Del2/myDel*Cos[thetak] - 
+     Sin[thetak])*((n + 1)*(n + Abs[m])*(n + Abs[m] - 1)*
+      LegendreP[n - 1, 0, Cos[thetak]]
+     + (n + 1)*LegendreP[n - 1, 2, Cos[thetak]]
+     + n*(n - Abs[m] + 2)*(n - Abs[m] + 1)*
+      LegendreP[n + 1, 0, Cos[thetak]]
+     + n*LegendreP[n + 1, 2, Cos[thetak]]) 
+  )
+fCh1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := (
+  I^(n + 1)*Del1/(n*(n + 1)*w*mu0*myDel)*(-Cos[thetak]/(2)*(
+       (n + Abs[m])*(n + Abs[m] - 1)*LegendreP[n - 1, 0, Cos[thetak]]
+        - LegendreP[n - 1, 2, Cos[thetak]]
+        - (n - Abs[m] + 2)*(n - Abs[m] + 1)*
+         LegendreP[n + 1, 0, Cos[thetak]]
+        + LegendreP[n + 1, 2, Cos[thetak]])
+     - (2*n + 1)*Sin[thetak]*Cos[thetak]*
+      LegendreP[n, 1, Cos[thetak]])
+  )
+
+fCh2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := (
+  I^n/(2*n*(n + 1)*w*mu0)*(Del2*Cos[thetak]/myDel - Sin[thetak])*(
+    (n + Abs[m])*(n + Abs[m] - 1)*LegendreP[n - 1, 0, Cos[thetak]]
+     + LegendreP[n - 1, 2, Cos[thetak]]
+     - (n - Abs[m] + 2)*(n - Abs[m] + 1)*
+      LegendreP[n + 1, 0, Cos[thetak]]
+     - LegendreP[n + 1, 2, Cos[thetak]]) 
+  )
+
+fqint[lambda_, r_, H_, thetak_, l_, m_, qparam_, type_] := (
+  n = If[Mod[l, nMax + 1] == 0, Floor[l/(nMax + 1)], 
+    Floor[l/(nMax + 1)] + 1];
+  nprime = If[Mod[l, nMax + 1] == 0, nMax, Mod[l, nMax + 1] - 1];
+  w = 2*Pi*c/lambda;
+  k0 = w/c;
+  
+  wc = ec*H/(meff*me);
+  e1 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - 
+         I*myGamma*w) + (wP^2*(w + I*g))/(w*(wc^2 - (w + I*g)^2)))*
+    e0;
+  e2 = I*(eInf*wP^2*wc/(w*((w + I*g)^2 - wc^2)))*e0;
+  e3 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - I*myGamma*w) - 
+      wP^2/(w*(w + I*g)))*e0;
+  
+  a1 = w^2*e1*mu0;
+  a2 = w^2*e2*mu0;
+  a3 = w^2*e3 *mu0;
+  
+  A = a1*Sin[thetak]^2 + a3*Cos[thetak]^2  ;
+  B = (a1^2 + a2^2)*Sin[thetak]^2 + a1*a3*(1 + Cos[thetak]^2);
+  C1 = a3*(a1^2 + a2^2);
+  kq = Sqrt[
+    If[qparam == 
+      1, (B + Sqrt[B^2 - 4*A*C1])/(2*A), (B - Sqrt[B^2 - 4*A*C1])/(2*
+        A)]];
+  
+  myDel = 
+   kq^4*Cos[thetak]^2 - a1*kq^2*(1 + Cos[thetak]^2) + (a1^2 + a2^2);
+  Del1 = a2*kq^2*Sin[thetak]*Cos[thetak];
+  Del2 = (kq^2 - a1)*kq^2*Sin[thetak]*Cos[thetak];
+  
+  Ae1 = fAe1[n, m, thetak, kq, myDel, Del1, Del2];
+  Ae2 = fAe2[n, m, thetak, kq, myDel, Del1, Del2];
+  Be1 = fBe1[n, m, thetak, kq, myDel, Del1, Del2];
+  Be2 = fBe2[n, m, thetak, kq, myDel, Del1, Del2]; 
+  Ce1 = fCe1[n, m, thetak, kq, myDel, Del1, Del2]; 
+  Ce2 = fCe2[n, m, thetak, kq, myDel, Del1, Del2];
+  Bh1 = fBh1[n, m, thetak, kq, myDel, Del1, Del2, w];
+  Bh2 = fBh2[n, m, thetak, kq, myDel, Del1, Del2, w];
+  Ch1 = fCh1[n, m, thetak, kq, myDel, Del1, Del2, w];
+  Ch2 = fCh2[n, m, thetak, kq, myDel, Del1, Del2, w];
+  Ah1 = fAh1[n, m, thetak, kq, myDel, Del1, Del2, w];
+  Ah2 = fAh2[n, m, thetak, kq, myDel, Del1, Del2, w];
+  
+  If [m == -1, 
+   Ae1 = -Ae1*(n + 1)*n; Be1 = Be1*(n + 1)*n; Ce1 = Ce1*(n + 1)*n; 
+   Ae2 = Ae2*(n + 1)*n; Be2 = -Be2*(n + 1)*n; Ce2 = -Ce2*(n + 1)*n; 
+   Ah1 = Ah1*(n + 1)*n; Bh1 = -Bh1*(n + 1)*n; Ch1 = -Ch1*(n + 1)*n; 
+   Ah2 = -Ah2*(n + 1)*n; Bh2 = Bh2*(n + 1)*n; Ch2 = Ch2*(n + 1)*n; ];
+  Ae = Ae1 + Ae2;
+  Bh = Bh1 + Bh2 ;
+  Ch = Ch1 + Ch2 ;
+  Ah = Ah1 + Ah2 ;
+  Be = Be1 + Be2;
+  Ce = Ce1 + Ce2;
+  
+  Q =
+   Ae*(SphericalHankelH1[n - 1, k0*r] - 
+       n*SphericalHankelH1[n, k0*r]/(k0*r))*
+     SphericalBesselJ[n, kq*r] - 
+    I*w*mu0/
+      k0*(Bh*(SphericalBesselJ[n - 1, kq*r] - 
+          n*SphericalBesselJ[n, kq*r]/(kq*r)) + 
+       Ch*SphericalBesselJ[n, kq*r]/r)*SphericalHankelH1[n, k0*r] ;
+  R = 
+    I*w*mu0/k0*
+     Ah*(SphericalHankelH1[n - 1, k0*r] - 
+       n*SphericalHankelH1[n, k0*r]/(k0*r))*
+     SphericalBesselJ[n, 
+      kq*
+       r] - (Be*(SphericalBesselJ[n - 1, kq*r] - 
+          n*SphericalBesselJ[n, kq*r]/(kq*r)) + 
+       Ce*SphericalBesselJ[n, kq*r]/r)*SphericalHankelH1[n, k0*r];
+  
+  Qint = 
+   If[type == 1, Q*kq^2*Sin[thetak]*LegendreP[nprime, m, Cos[thetak]],
+     R*kq^2*Sin[thetak]*LegendreP[nprime, m, Cos[thetak] ]]
+  )
+
+fSInt[lambda_, r_, H_, thetak_, l_, m_, q_, type_] := (
+  n = If[Mod[l, nMax + 1] == 0, Floor[l/(nMax + 1)], 
+    Floor[l/(nMax + 1)] + 1];
+  nprime = If[Mod[l, nMax + 1] == 0, nMax, Mod[l, nMax + 1] - 1];
+  w = 2*Pi*c/lambda;
+  k0 = w/c;
+  wc = ec*H/(meff*me);
+  e1 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - 
+         I*myGamma*w) + (wP^2*(w + I*g))/(w*(wc^2 - (w + I*g)^2)))*
+    e0;
+  e2 = I*(eInf*wP^2*wc/(w*((w + I*g)^2 - wc^2)))*e0;
+  e3 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - I*myGamma*w) - 
+      wP^2/(w*(w + I*g)))*e0;
+  a1 = w^2*e1*mu0;
+  a2 = w^2*e2*mu0;
+  a3 = w^2*e3 *mu0;
+  
+  A = a1*Sin[thetak]^2 + a3*Cos[thetak]^2  ;
+  B = (a1^2 + a2^2)*Sin[thetak]^2 + a1*a3*(1 + Cos[thetak]^2);
+  C1 = a3*(a1^2 + a2^2);
+  kq = Sqrt[
+    If[q == 
+      1, (B + Sqrt[B^2 - 4*A*C1])/(2*A), (B - Sqrt[B^2 - 4*A*C1])/(2*
+        A)]] ;
+  
+  myDel = 
+   kq^4*Cos[thetak]^2 - a1*kq^2*(1 + Cos[thetak]^2) + (a1^2 + a2^2); 
+  Del1 = a2*kq^2*Sin[thetak]*Cos[thetak]; 
+  Del2 = (kq^2 - a1)*kq^2*Sin[thetak]*Cos[thetak];
+  
+  Ae1 = fAe1[n, m, thetak, kq, myDel, Del1, Del2];
+  Ae2 = fAe2[n, m, thetak, kq, myDel, Del1, Del2];
+  
+  Ah1 = fAh1[n, m, thetak, kq, myDel, Del1, Del2, w];
+  Ah2 = fAh2[n, m, thetak, kq, myDel, Del1, Del2, w];
+  If [m == -1, 
+   Ae1 = -Ae1*(n + 1)*n; 
+   Ae2 = Ae2*(n + 1)*n; 
+   Ah1 = Ah1*(n + 1)*n; 
+   Ah2 = -Ah2*(n + 1)*n; 
+   Ae = Ae1 + Ae2;
+   ];
+  
+  Ah = Ah1 + Ah2;
+  Ae = Ae1 + Ae2;
+  If[type == 1,
+   Ae*SphericalBesselJ[n, kq*r]*kq^2*Sin[thetak]*
+    LegendreP[nprime, m, Cos[thetak]],     
+   Ah*SphericalBesselJ[n, kq*r]*kq^2*Sin[thetak]*
+    LegendreP[nprime, m, Cos[thetak]]]
+  )
+
+
+fScaCoeff[lambda_, r_, H_, z_, pol_] := (
+  w = 2*Pi*c/lambda;
+  k0 = w/c;
+  
+  TMatP11 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 1, 1], {thetak, 0, Pi}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatP12 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 2, 1], {thetak, 0, Pi}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatP21 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 1, 2], {thetak, 0, \[Pi]}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatP22 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 2, 2], {thetak, 0, Pi}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> 16], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TmatP = 
+   2*Pi*Join[Join[TMatP11, TMatP12, 2] , Join[TMatP21, TMatP22, 2], 
+     1] ;
+  
+  
+  nTable = Table[n, {n, nMax}];
+  amnX0 = I^(nTable + 1)*(2*nTable + 1)/(2*nTable*(nTable + 1));
+  If[z == 1,
+   If[pol == 1,
+    (* beam propagting in +z, polarized in x*)
+    amnP = amnX0;
+    bmnP = amnX0;
+    amnN = amnX0*nTable*(nTable + 1);
+    bmnN = -amnX0*nTable*(nTable + 1);,
+    (* beam propagting in +z, polarized in y*)
+    amnP = -I*amnX0;
+    bmnP = -I*amnX0;
+    amnN = I*amnX0*nTable*(nTable + 1);
+    bmnN = -I*amnX0*nTable*(nTable + 1);
+    ],
+   If[pol == 1,
+    (* beam propagating in -z, polarized in x*)
+    
+    amnP = amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    bmnP = -amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    amnN = amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
+    bmnN = amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];,
+    (*beam propagating in -z, polarized in y*)
+    
+    amnP = -I*amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    bmnP = I*amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    amnN = I*amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
+    bmnN = I*amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
+    ]
+   ];
+  
+  vecP = I/(k0*r)^2*ArrayReshape[Join[amnP, bmnP, 1], {2*nMax, 1}];
+  GP = LinearSolve[TmatP, vecP];
+  (*resP=TmatP.GP-vecP*)
+  
+  TMatN11 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 1, 1], {thetak, 0, Pi/2, 
+       Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatN12 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 2, 1], {thetak, 0, Pi}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatN21 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 1, 2], {thetak, 0, Pi}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatN22 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 2, 2], {thetak, 0, Pi}, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  
+  TmatN = 
+   2*Pi*Join[Join[TMatN11, TMatN12, 2] , Join[TMatN21, TMatN22, 2], 
+     1] ;
+  
+  vecN = I/(k0*r)^2*ArrayReshape[Join[amnN, bmnN, 1], {2 nMax, 1}];
+  GN = LinearSolve[TmatN, vecN];
+  (*resN=TmatN.GN-vecN*)
+  myRange = {thetak, 0, Pi};
+  AsPq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 1, 1], myRange,   
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  AsPq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 2, 1], myRange, 
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  AsNq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 1, 1], myRange,   
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  AsNq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 2, 1], myRange,   
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsPq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 1, 2], myRange,  
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsPq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 2, 2], myRange,  
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsNq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 1, 2], myRange,   
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsNq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 2, 2], myRange,   
+      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  
+  jn = Table[SphericalBesselJ[n, k0*r], {n, nMax}];
+  hn = Table[SphericalHankelH1[n, k0*r], {n, nMax}];
+  
+  
+  AsP = (2*Pi*Join[AsPq1, AsPq2, 2] . GP - amnP*jn)/hn;
+  AsN = (2*Pi*Join[AsNq1, AsNq2, 2] . GN - amnN*jn)/hn;
+  BsP = (I*w*mu0*2*Pi/k0*Join[BsPq1, BsPq2, 2] . GP - bmnP*jn)/hn;
+  BsN = (I*w*mu0*2*Pi/k0*Join[BsNq1, BsNq2, 2] . GN - bmnN*jn)/hn;
+  ScaCoeff = {AsP, AsN, BsP, BsN}
+  (*ScaX=2*Pi/k0^2*Total[Table[2n^2(n+1)^2 / (2n+1),{n, nMax}]*(Abs[
+  AsP]^2+ Abs[BsP]^2) +Table[2/ (2n+1),{n, nMax}]*(Abs[AsN]^2+Abs[
+  BsN]^2)]*)
+  
+  
+  )
