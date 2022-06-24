@@ -1,19 +1,30 @@
-(*Clear["Global`*"];*)
-e0 = 8.85418782*10^(-12);
-mu0 = 1.25663706*10^(-6);
-eInf = 15.7;
-wL = 3.62*10^13;
-wT = 3.39* 10^13;
-wP = 3.14* 10^13;
-myGamma = 5.65* 10^11;
-g = 3.39* 10^12;
-meff = 0.022;
-me = 9.11* 10^(-31);
-ec = 1.602* 10^(-19);
+c = 299792458; (* speed of light*)
+e0 = 
+ 8.85418782*10^(-12); (* permittivity of free space *)
+mu0 = 
+ 1.25663706*10^(-6); (* permeability of free space *)
+me = 
+ 9.11* 10^(-31); (* electron mass *)
+ec = 
+ 1.602* 10^(-19); (* electron charge *)
 
-c = 299792458;
+(* Global parameters for calculation of dielectric function with \
+Drude like model, the values given here are for n-doped InSb \
+particles *)
+eInf = 15.7; (* high-frequency dielectric constant *)
+wL \
+= 3.62*10^13; (* longitudinal optical phonon frequency *)
+wT = 
+ 3.39* 10^13; (* transverse optical phonon frequency *) 
+wP = 3.14* 10^13; (* plasma frequency of free carriers *)
+myGamma = 
+ 5.65* 10^11; (* free carrier damping constant *)
+g = 
+ 3.39* 10^12; (* phonon damping constant *)
+meff = 0.022; (* electron \
+effective mass*) 
 
-nMax = 4;
+nMax = 4; (* maximum number of multipoles*)
 
 myWP = 100;
 maxRec = 100;
@@ -21,6 +32,223 @@ accGoal = 8;
 ParallelEvaluate[Off[NIntegrate::eincr]];
 ParallelEvaluate[Off[NIntegrate::slwcon]];
 ParallelEvaluate[Off[NIntegrate::precw]];
+
+(* This function fScaCoeff calculates the scattering coefficients of \
+magneto-optical particle. It expects the following parameters,
+lambda - the wavelength,
+r - the radius of the particle, 
+H - magnitude of external magnetic field, z - the propagation \
+direction of the incident field, values can be +1 for +z direction \
+and or -1 for -z direction,
+pol - polarization of the incident wave, +1 for x-polariztion, +2 for \
+y polarization
+
+The function returns a list of scattering coefficients with the \
+following structure {{Amn (m=1)}, {Amn (m=-1)}, {Bmn (m=1)}, {Bmn \
+(m=-1)}} 
+for example: {{A11, A21, A31, ... Anmax1 },{A1-1, A2-1, A3-1, ... \
+Anmax-1 },{B11, B21, B31, ... Bnmax1 },{B1-1, B2-1, B3-1, ... Bnmax-1 \
+}}
+
+Example for calling the function using parallel computing:
+ScaCoeffH0001R10umHR=ParallelTable[fScaCoeff[lambda, 10*10^-6, 0.5, \
+1,1],{lambda,4*10^-5, 9*10^-5,1*10^-7}];
+*)
+fScaCoeff[lambda_, r_, H_, z_, pol_] := (
+  w = 2*Pi*c/lambda;
+  k0 = w/c;
+  
+  (* calculation of dielectric function eith Drude model *)
+  
+  wc = ec*H/(meff*me);
+  e1 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - 
+         I*myGamma*w) + (wP^2*(w + I*g))/(w*(wc^2 - (w + I*g)^2)))*
+    e0;
+  e2 = I*(eInf*wP^2*wc/(w*((w + I*g)^2 - wc^2)))*e0;
+  e3 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - I*myGamma*w) - 
+      wP^2/(w*(w + I*g)))*e0;
+  
+  TMatP11 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 1, 1, e1, e2, e3], {thetak, 0,
+        Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatP12 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 2, 1, e1, e2, e3], {thetak, 0,
+        Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatP21 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 1, 2, e1, e2, e3], {thetak, 
+       0, \[Pi]}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatP22 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, 1, 2, 2, e1, e2, e3], {thetak, 0,
+        Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> 16], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TmatP = 
+   2*Pi*Join[Join[TMatP11, TMatP12, 2] , Join[TMatP21, TMatP22, 2], 
+     1] ;
+  
+  
+  nTable = Table[n, {n, nMax}];
+  amnX0 = I^(nTable + 1)*(2*nTable + 1)/(2*nTable*(nTable + 1));
+  If[z == 1,
+   If[pol == 1,
+    (* beam propagting in +z, polarized in x*)
+    amnP = amnX0;
+    bmnP = amnX0;
+    amnN = amnX0*nTable*(nTable + 1);
+    bmnN = -amnX0*nTable*(nTable + 1);,
+    (* beam propagting in +z, polarized in y*)
+    amnP = -I*amnX0;
+    bmnP = -I*amnX0;
+    amnN = I*amnX0*nTable*(nTable + 1);
+    bmnN = -I*amnX0*nTable*(nTable + 1);
+    ],
+   If[pol == 1,
+    (* beam propagating in -z, polarized in x*)
+    
+    amnP = amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    bmnP = -amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    amnN = amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
+    bmnN = amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];,
+    (*beam propagating in -z, polarized in y*)
+    
+    amnP = -I*amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    bmnP = I*amnX0*LegendreP[nTable, 0, Cos[Pi]];
+    amnN = I*amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
+    bmnN = I*amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
+    ]
+   ];
+  
+  vecP = I/(k0*r)^2*ArrayReshape[Join[amnP, bmnP, 1], {2*nMax, 1}];
+  GP = LinearSolve[TmatP, vecP];
+  (*resP=TmatP.GP-vecP*)
+  
+  TMatN11 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 1, 1, e1, e2, e3], {thetak, 
+       0, Pi/2, Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatN12 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 2, 1, e1, e2, e3], {thetak, 
+       0, Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatN21 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 1, 2, e1, e2, e3], {thetak, 
+       0, Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  TMatN22 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[
+      fqint[lambda, r, H, thetak, l, -1, 2, 2, e1, e2, e3], {thetak, 
+       0, Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  
+  TmatN = 
+   2*Pi*Join[Join[TMatN11, TMatN12, 2] , Join[TMatN21, TMatN22, 2], 
+     1] ;
+  
+  vecN = I/(k0*r)^2*ArrayReshape[Join[amnN, bmnN, 1], {2 nMax, 1}];
+  GN = LinearSolve[TmatN, vecN];
+  (*resN=TmatN.GN-vecN*)
+  myRange = {thetak, 0, Pi};
+  AsPq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 1, 1, e1, e2, e3], 
+      myRange,   AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  AsPq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 2, 1, e1, e2, e3], 
+      myRange, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  AsNq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 1, 1, e1, e2, e3], 
+      myRange,   AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  AsNq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 2, 1, e1, e2, e3], 
+      myRange,   AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsPq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 1, 2, e1, e2, e3], 
+      myRange,  AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsPq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 2, 2, e1, e2, e3], 
+      myRange,  AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsNq1 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 1, 2, e1, e2, e3], 
+      myRange,   AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  BsNq2 = 
+   ArrayReshape[
+    Table[
+     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 2, 2, e1, e2, e3], 
+      myRange,   AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
+      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
+     nMax + 1}];
+  
+  jn = Table[SphericalBesselJ[n, k0*r], {n, nMax}];
+  hn = Table[SphericalHankelH1[n, k0*r], {n, nMax}];
+  
+  
+  AsP = (2*Pi*Join[AsPq1, AsPq2, 2] . GP - amnP*jn)/hn;
+  AsN = (2*Pi*Join[AsNq1, AsNq2, 2] . GN - amnN*jn)/hn;
+  BsP = (I*w*mu0*2*Pi/k0*Join[BsPq1, BsPq2, 2] . GP - bmnP*jn)/hn;
+  BsN = (I*w*mu0*2*Pi/k0*Join[BsNq1, BsNq2, 2] . GN - bmnN*jn)/hn;
+  ScaCoeff = {AsP, AsN, BsP, BsN}
+  
+  )
 
 fAe1[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_] := (
   I^n*(2*n + 1)/(2*n^2*(n + 1)^2)*
@@ -130,20 +358,13 @@ fCh2[n_, m_, thetak_, kq_, myDel_, Del1_, Del2_, w_] := (
      - LegendreP[n + 1, 2, Cos[thetak]]) 
   )
 
-fqint[lambda_, r_, H_, thetak_, l_, m_, qparam_, type_] := (
+fqint[lambda_, r_, H_, thetak_, l_, m_, qparam_, type_, e1_, e2_, 
+  e3_] := (
   n = If[Mod[l, nMax + 1] == 0, Floor[l/(nMax + 1)], 
     Floor[l/(nMax + 1)] + 1];
   nprime = If[Mod[l, nMax + 1] == 0, nMax, Mod[l, nMax + 1] - 1];
   w = 2*Pi*c/lambda;
   k0 = w/c;
-  
-  wc = ec*H/(meff*me);
-  e1 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - 
-         I*myGamma*w) + (wP^2*(w + I*g))/(w*(wc^2 - (w + I*g)^2)))*
-    e0;
-  e2 = I*(eInf*wP^2*wc/(w*((w + I*g)^2 - wc^2)))*e0;
-  e3 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - I*myGamma*w) - 
-      wP^2/(w*(w + I*g)))*e0;
   
   a1 = w^2*e1*mu0;
   a2 = w^2*e2*mu0;
@@ -210,19 +431,14 @@ fqint[lambda_, r_, H_, thetak_, l_, m_, qparam_, type_] := (
      R*kq^2*Sin[thetak]*LegendreP[nprime, m, Cos[thetak] ]]
   )
 
-fSInt[lambda_, r_, H_, thetak_, l_, m_, q_, type_] := (
+fSInt[lambda_, r_, H_, thetak_, l_, m_, q_, type_, e1_, e2_, 
+  e3_] := (
   n = If[Mod[l, nMax + 1] == 0, Floor[l/(nMax + 1)], 
     Floor[l/(nMax + 1)] + 1];
   nprime = If[Mod[l, nMax + 1] == 0, nMax, Mod[l, nMax + 1] - 1];
   w = 2*Pi*c/lambda;
   k0 = w/c;
-  wc = ec*H/(meff*me);
-  e1 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - 
-         I*myGamma*w) + (wP^2*(w + I*g))/(w*(wc^2 - (w + I*g)^2)))*
-    e0;
-  e2 = I*(eInf*wP^2*wc/(w*((w + I*g)^2 - wc^2)))*e0;
-  e3 = eInf*(1 + (wL^2 - wT^2)/(wT^2 - w^2 - I*myGamma*w) - 
-      wP^2/(w*(w + I*g)))*e0;
+  
   a1 = w^2*e1*mu0;
   a2 = w^2*e2*mu0;
   a3 = w^2*e3 *mu0;
@@ -263,192 +479,4 @@ fSInt[lambda_, r_, H_, thetak_, l_, m_, q_, type_] := (
   )
 
 
-fScaCoeff[lambda_, r_, H_, z_, pol_] := (
-  w = 2*Pi*c/lambda;
-  k0 = w/c;
-  
-  TMatP11 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, 1, 1, 1], {thetak, 0, Pi}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TMatP12 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, 1, 2, 1], {thetak, 0, Pi}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TMatP21 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, 1, 1, 2], {thetak, 0, \[Pi]}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TMatP22 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, 1, 2, 2], {thetak, 0, Pi}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> 16], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TmatP = 
-   2*Pi*Join[Join[TMatP11, TMatP12, 2] , Join[TMatP21, TMatP22, 2], 
-     1] ;
-  
-  
-  nTable = Table[n, {n, nMax}];
-  amnX0 = I^(nTable + 1)*(2*nTable + 1)/(2*nTable*(nTable + 1));
-  If[z == 1,
-   If[pol == 1,
-    (* beam propagting in +z, polarized in x*)
-    amnP = amnX0;
-    bmnP = amnX0;
-    amnN = amnX0*nTable*(nTable + 1);
-    bmnN = -amnX0*nTable*(nTable + 1);,
-    (* beam propagting in +z, polarized in y*)
-    amnP = -I*amnX0;
-    bmnP = -I*amnX0;
-    amnN = I*amnX0*nTable*(nTable + 1);
-    bmnN = -I*amnX0*nTable*(nTable + 1);
-    ],
-   If[pol == 1,
-    (* beam propagating in -z, polarized in x*)
-    
-    amnP = amnX0*LegendreP[nTable, 0, Cos[Pi]];
-    bmnP = -amnX0*LegendreP[nTable, 0, Cos[Pi]];
-    amnN = amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
-    bmnN = amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];,
-    (*beam propagating in -z, polarized in y*)
-    
-    amnP = -I*amnX0*LegendreP[nTable, 0, Cos[Pi]];
-    bmnP = I*amnX0*LegendreP[nTable, 0, Cos[Pi]];
-    amnN = I*amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
-    bmnN = I*amnX0*nTable*(nTable + 1)*LegendreP[nTable, 0, Cos[Pi]];
-    ]
-   ];
-  
-  vecP = I/(k0*r)^2*ArrayReshape[Join[amnP, bmnP, 1], {2*nMax, 1}];
-  GP = LinearSolve[TmatP, vecP];
-  (*resP=TmatP.GP-vecP*)
-  
-  TMatN11 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, -1, 1, 1], {thetak, 0, Pi/2, 
-       Pi}, AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TMatN12 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, -1, 2, 1], {thetak, 0, Pi}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TMatN21 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, -1, 1, 2], {thetak, 0, Pi}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  TMatN22 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[
-      fqint[lambda, r, H, thetak, l, -1, 2, 2], {thetak, 0, Pi}, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  
-  TmatN = 
-   2*Pi*Join[Join[TMatN11, TMatN12, 2] , Join[TMatN21, TMatN22, 2], 
-     1] ;
-  
-  vecN = I/(k0*r)^2*ArrayReshape[Join[amnN, bmnN, 1], {2 nMax, 1}];
-  GN = LinearSolve[TmatN, vecN];
-  (*resN=TmatN.GN-vecN*)
-  myRange = {thetak, 0, Pi};
-  AsPq1 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 1, 1], myRange,   
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  AsPq2 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 2, 1], myRange, 
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  AsNq1 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 1, 1], myRange,   
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  AsNq2 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 2, 1], myRange,   
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  BsPq1 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 1, 2], myRange,  
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  BsPq2 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, 1, 2, 2], myRange,  
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  BsNq1 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 1, 2], myRange,   
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  BsNq2 = 
-   ArrayReshape[
-    Table[
-     NIntegrate[fSInt[lambda, r, H, thetak, l, -1, 2, 2], myRange,   
-      AccuracyGoal -> accGoal, MaxRecursion -> maxRec, 
-      WorkingPrecision -> myWP], {l, nMax*(nMax + 1)}], {nMax, 
-     nMax + 1}];
-  
-  jn = Table[SphericalBesselJ[n, k0*r], {n, nMax}];
-  hn = Table[SphericalHankelH1[n, k0*r], {n, nMax}];
-  
-  
-  AsP = (2*Pi*Join[AsPq1, AsPq2, 2] . GP - amnP*jn)/hn;
-  AsN = (2*Pi*Join[AsNq1, AsNq2, 2] . GN - amnN*jn)/hn;
-  BsP = (I*w*mu0*2*Pi/k0*Join[BsPq1, BsPq2, 2] . GP - bmnP*jn)/hn;
-  BsN = (I*w*mu0*2*Pi/k0*Join[BsNq1, BsNq2, 2] . GN - bmnN*jn)/hn;
-  ScaCoeff = {AsP, AsN, BsP, BsN}
-  (*ScaX=2*Pi/k0^2*Total[Table[2n^2(n+1)^2 / (2n+1),{n, nMax}]*(Abs[
-  AsP]^2+ Abs[BsP]^2) +Table[2/ (2n+1),{n, nMax}]*(Abs[AsN]^2+Abs[
-  BsN]^2)]*)
-  
-  
-  )
+
